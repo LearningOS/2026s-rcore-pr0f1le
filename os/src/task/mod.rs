@@ -14,7 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -153,6 +155,53 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    pub fn get_start_time(&self) -> isize {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].start_time
+    }
+
+    pub fn count_syscall(&self, id: usize) {
+        if id >= MAX_SYSCALL_NUM {
+            panic!("Invalid syscall");
+        }
+        let mut inner = self.inner.exclusive_access();
+        let t = inner.current_task;
+        inner.tasks[t].syscall_count[id] += 1;
+    }
+
+    pub fn get_syscall_count(&self, id: usize) -> usize {
+        if id >= MAX_SYSCALL_NUM {
+            panic!("Invalid syscall");
+        }
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].syscall_count[id]
+    }
+
+    pub fn mmap(&self, start: usize, len: usize, port: &MapPermission) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let t = inner.current_task;
+        let t_memset = &mut inner.tasks[t].memory_set;
+        if t_memset.is_overlaped(VirtAddr::from(start), VirtAddr::from(start+len)) {
+            return false;
+        }
+        t_memset.insert_framed_area(
+            VirtAddr::from(start),
+            VirtAddr::from(start+len),
+            *port);
+        true
+    }
+
+    pub fn munmap(&self, start: usize, len: usize) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let t = inner.current_task;
+        let t_memset = &mut inner.tasks[t].memory_set;
+        if !t_memset.is_matched(start, start + len) {
+            return false;
+        }
+        t_memset.unmap(VirtAddr::from(start), VirtAddr::from(start+len));
+        true
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +250,32 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+///
+pub fn get_start_time() -> isize {
+    TASK_MANAGER.get_start_time()
+}
+
+///
+pub fn count_syscall(id: usize) {
+    TASK_MANAGER.count_syscall(id)
+}
+
+///
+pub fn get_syscall_count(id: usize) -> usize {
+    TASK_MANAGER.get_syscall_count(id)
+}
+
+///
+pub fn mmap(start: usize, len: usize, port: usize) -> bool {
+    trace!("mmap: {:#x} - {:#x}", start, start+len);
+    let mut p = MapPermission::from_bits((port as u8) << 1).unwrap();
+    p.set(MapPermission::U, true);
+    TASK_MANAGER.mmap(start, len, &p)
+}
+
+///
+pub fn munmap(start: usize, len: usize) -> bool {
+    TASK_MANAGER.munmap(start, len)
 }

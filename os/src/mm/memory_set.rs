@@ -262,6 +262,44 @@ impl MemorySet {
             false
         }
     }
+    // fix
+    pub fn is_overlaped(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        let start_va = start.floor();
+        let end_va = end.ceil();
+        for i in self.areas.iter() {
+            if start_va >= i.vpn_range.get_end() || end_va <= i.vpn_range.get_start() {
+                continue;
+            } else {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn is_matched(&self, start: usize, end: usize) -> bool {
+        for i in self.areas.iter() {
+            if i.vpn_range.get_start().0 << 12 == start && i.vpn_range.get_end().0 << 12 == end {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn unmap(&mut self, start: VirtAddr, end: VirtAddr) {
+        let start_va = start.floor();
+        let end_va = end.ceil();
+        let mut i = 0;
+        while i <= self.areas.len() {
+            let vpn_range = self.areas[i].vpn_range;
+            if vpn_range.get_start().0 == start_va.0 && vpn_range.get_end().0 == end_va.0 {
+                self.areas[i].unmap(&mut self.page_table);
+                self.areas.drain(i..i+1);
+                break;
+            } else {
+                i += 1;
+            }
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

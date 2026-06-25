@@ -166,6 +166,14 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     while start < end {
         let start_va = VirtAddr::from(start);
         let mut vpn = start_va.floor();
+        let pte_res = page_table.translate(vpn);
+        if pte_res.is_none() { return Vec::new(); } // 返回空，让 syscall 返回 -1
+
+        let pte = pte_res.unwrap();
+        if !pte.is_valid() || !pte.flags().contains(PTEFlags::U) {
+            return Vec::new();
+        }
+
         let ppn = page_table.translate(vpn).unwrap().ppn();
         vpn.step();
         let mut end_va: VirtAddr = vpn.into();
